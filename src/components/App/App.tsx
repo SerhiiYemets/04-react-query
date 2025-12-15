@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
 import ReactPaginate from "react-paginate";
+import { useQuery, keepPreviousData } from "@tanstack/react-query"; 
 
 import { Toaster } from "react-hot-toast";
 import toast from "react-hot-toast";
 
 import SearchBar from "../SearchBar/SearchBar";
-import MovieGrid from "../MovieGrid/MovieGrid"; 
-import Loader from "../Loader/Loader";  
+import MovieGrid from "../MovieGrid/MovieGrid";
+import Loader from "../Loader/Loader";
 import ErrorMessage from "../ErrorMessage/ErrorMessage";
 import MovieModal from "../MovieModal/MovieModal";
 
 import type { Movie } from "../../types/movie";
-import useMovieSearch from "../MovieSearch/useMovieSearch";
+import { fetchMovie } from "../../services/movieService";
+import type { MovieResponse } from "../../services/movieService";
 
 import css from "./App.module.css";
 
@@ -19,7 +21,7 @@ interface AppState {
   query: string;
   page: number;
   selectedMovie: Movie | null;
-} 
+}
 
 export default function App() {
   const [state, setState] = useState<AppState>({
@@ -28,16 +30,32 @@ export default function App() {
     selectedMovie: null,
   });
 
-  const { movies, totalPages, error, isLoading, isSuccess } = useMovieSearch(
-    state.query,
-    state.page,
-  );
+  const { query, page } = state;
+
+  const {
+    data,
+    error,
+    isLoading,
+    isSuccess,
+  } = useQuery<MovieResponse, Error>({
+    queryKey: ["movies", query, page],
+    queryFn: () => fetchMovie(query, page),
+    enabled: !!query.trim() && query.length >= 2, 
+    placeholderData: keepPreviousData, 
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    retry: false,
+    refetchOnWindowFocus: false,
+  });
+
+  const movies = data?.results || [];
+  const totalPages = data?.total_pages || 0;
 
   useEffect(() => {
-    if (isSuccess && movies.length === 0 && state.query) {
+    if (isSuccess && movies.length === 0 && query) {
       toast.error("No movies found for your request!!!");
     }
-  }, [movies, isSuccess, state.query]);
+  }, [movies, isSuccess, query]);
 
   useEffect(() => {
     if (error) {
@@ -45,44 +63,38 @@ export default function App() {
     }
   }, [error]);
 
-  const handleSearch = (query: string) => {
-    if (!query.trim()) {
+  const handleSearch = (newQuery: string) => {
+    if (!newQuery.trim()) {
       toast.error("Please, enter your search query!");
       return;
     }
 
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
-      query: query.trim(),
+      query: newQuery.trim(),
       page: 1,
     }));
   };
 
   const setPage = (newPage: number) => {
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
       page: newPage,
     }));
-
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const handleMovieSelect = (movie: Movie) => {
-    setState((prev) => ({
+    setState(prev => ({
       ...prev,
       selectedMovie: movie,
     }));
   };
 
   const handleModalClose = () => {
-    setState((prev) => ({
-      ...prev,
-      selectedMovie: null,
-    }));
+    setState(prev => ({ ...prev, selectedMovie: null }));
   };
 
-  const { page, selectedMovie } = state;
-  
   return (
     <>
       <SearchBar onSubmit={handleSearch} />
@@ -90,6 +102,7 @@ export default function App() {
       <main>
         {isLoading && <Loader />}
         {error && <ErrorMessage />}
+
         {movies.length > 0 && (
           <>
             {totalPages > 1 && (
@@ -109,17 +122,15 @@ export default function App() {
           </>
         )}
 
-        {selectedMovie && (
-          <MovieModal movie={selectedMovie} onClose={handleModalClose} />
+        {state.selectedMovie && (
+          <MovieModal
+            movie={state.selectedMovie}
+            onClose={handleModalClose}
+          />
         )}
       </main>
 
-      <Toaster
-        position="top-center"
-        toastOptions={{
-          duration: 3000,
-        }}
-      />
+      <Toaster position="top-center" toastOptions={{ duration: 3000 }} />
     </>
   );
 }
